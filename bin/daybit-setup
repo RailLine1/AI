@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Daybit AI 작업 공간 2단계: 내 구독 AI에 로그인하고, 로그인 정보를 이 저장소의 Secret 에 저장해요.
+# 로그인 정보는 GitHub Secret 에만 있고 Daybit 서버로 가지 않아요 (P-AI-09).
+# 사용법: daybit-setup claudecode | codex
+set -euo pipefail
+
+AI="${1:-}"
+REPO="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
+
+save_secret() {  # $1 이름, 표준 입력 = 값
+  local name="$1" value
+  value="$(cat)"
+  if ! printf '%s' "$value" | gh secret set "$name" --repo "$REPO" 2>/dev/null; then
+    echo "Secret 저장 권한이 없어서 GitHub 로그인을 한 번 더 할게요."
+    gh auth login --web --scopes repo
+    printf '%s' "$value" | gh secret set "$name" --repo "$REPO"
+  fi
+  echo "저장 완료: $name"
+}
+
+case "$AI" in
+  claudecode)
+    echo "1. 브라우저에서 Claude 계정으로 로그인하면 마지막에 토큰(sk-ant-oat…)이 보여요. 복사해 두세요."
+    claude setup-token
+    read -rsp "2. 복사한 토큰을 붙여 넣고 Enter: " TOKEN; echo
+    [ -n "$TOKEN" ] || { echo "토큰이 비었어요"; exit 1; }
+    printf '%s' "$TOKEN" | save_secret CLAUDE_CODE_OAUTH_TOKEN
+    ;;
+  codex)
+    echo "1. ChatGPT 계정으로 Codex 에 로그인해요."
+    codex login --device-auth || codex login
+    [ -f "$HOME/.codex/auth.json" ] || { echo "로그인 정보(~/.codex/auth.json)를 찾지 못했어요"; exit 1; }
+    base64 -w0 "$HOME/.codex/auth.json" | save_secret CODEX_AUTH_JSON
+    ;;
+  *)
+    echo "사용법: daybit-setup claudecode | codex"
+    exit 1
+    ;;
+esac
+
+echo
+echo "끝났어요! Daybit 앱으로 돌아가 3단계(샘플 테스트)를 눌러 주세요."
+echo "Secret 이 안 보이면: https://github.com/$REPO/settings/secrets/actions"
