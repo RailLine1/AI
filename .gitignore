@@ -1,0 +1,4 @@
+eval/samples/
+eval/results/
+.env
+__pycache__/
