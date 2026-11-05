@@ -11,19 +11,40 @@ save_secret() {  # $1 이름, 표준 입력 = 값
   local name="$1" value
   value="$(cat)"
   if ! printf '%s' "$value" | gh secret set "$name" --repo "$REPO" 2>/dev/null; then
-    echo "Secret 저장 권한이 없어서 GitHub 로그인을 한 번 더 할게요."
-    gh auth login --web --scopes repo
+    # Codespace 기본 토큰(GITHUB_TOKEN)은 Secret 을 쓸 수 없고, 이 변수가 있으면 gh 가 새 로그인도 거부해요
+    unset GITHUB_TOKEN GH_TOKEN
+    if ! gh auth status >/dev/null 2>&1; then
+      echo "Secret 저장 권한이 없어서 GitHub 로그인을 한 번 더 할게요."
+      gh auth login --web --scopes repo
+    fi
     printf '%s' "$value" | gh secret set "$name" --repo "$REPO"
   fi
   echo "저장 완료: $name"
 }
 
+read_secret() {  # 화면에 보이지 않게 받고, 줄바꿈 · 공백은 지워요 (좁은 터미널에서 토큰이 여러 줄로 접혀 복사돼도 하나로 받기)
+  local value
+  trap 'stty echo 2>/dev/null' EXIT
+  stty -echo 2>/dev/null || true
+  value="$(cat | tr -d '[:space:]')"
+  stty echo 2>/dev/null || true
+  echo >&2
+  printf '%s' "$value"
+}
+
 case "$AI" in
   claudecode)
-    echo "1. 브라우저에서 Claude 계정으로 로그인하면 마지막에 토큰(sk-ant-oat…)이 보여요. 복사해 두세요."
+    echo "1. 터미널에 나온 주소를 브라우저에서 열고 Claude 계정으로 승인한 뒤, 화면의 코드를 여기에 붙여 넣으세요."
+    echo "   마지막에 토큰(sk-ant-oat…)이 나오면 복사해 두세요. 저절로 열리는 localhost 창은 닫아도 돼요."
     claude setup-token
-    read -rsp "2. 복사한 토큰을 붙여 넣고 Enter: " TOKEN; echo
+    echo "2. 복사한 토큰을 붙여 넣고 Enter, 이어서 Ctrl+D 를 누르세요. 화면에는 안 보여요."
+    TOKEN="$(read_secret)"
     [ -n "$TOKEN" ] || { echo "토큰이 비었어요"; exit 1; }
+    echo "토큰 확인 중…"
+    if ! CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" claude -p --tools "" "ok" >/dev/null 2>&1; then
+      echo "이 토큰으로 Claude 에 로그인되지 않아요 (${#TOKEN}자, 보통 100자 남짓). 다시 실행해 주세요."
+      exit 1
+    fi
     printf '%s' "$TOKEN" | save_secret CLAUDE_CODE_OAUTH_TOKEN
     ;;
   codex)

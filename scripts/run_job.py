@@ -19,8 +19,6 @@ import urllib.request
 
 AUDIENCE = "daybit"
 TIMEOUT_SEC = 15 * 60
-# Claude Code 내장 도구를 모두 꺼요. 자료 본문에 숨긴 지시로 파일(/proc/self/environ 등)을 읽어 토큰을 빼내지 못하게 해요
-CLAUDE_TOOLS = "Bash,BashOutput,KillShell,Edit,MultiEdit,Write,Read,NotebookEdit,Glob,Grep,LS,WebFetch,WebSearch,Task,TodoWrite,SlashCommand,Skill"
 
 
 def oidc_token():
@@ -55,12 +53,17 @@ def build_prompt(job):
 def run_ai(ai, prompt):
     """AI 가 낸 글(문제 JSON 이 들어 있는 텍스트)을 돌려줘요"""
     if ai == "claudecode":
-        # -p: 비대화 실행. 도구는 하나도 쓰지 않고 답만 내게 해요. MCP 설정도 읽지 않아요
-        cmd = ["claude", "-p", "--output-format", "json", "--disallowedTools", CLAUDE_TOOLS, "--strict-mcp-config"]
+        # -p: 비대화 실행. --tools "" 로 내장 도구를 모두 꺼서 답만 내게 해요. 자료 본문에 숨긴 지시로 파일(/proc/self/environ 등)을 읽어 토큰을 빼내지 못하게 해요. MCP 설정도 읽지 않아요
+        cmd = ["claude", "-p", "--output-format", "json", "--tools", "", "--strict-mcp-config"]
         out = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=TIMEOUT_SEC)
+        try:
+            result = json.loads(out.stdout)
+        except ValueError:
+            result = None
         if out.returncode != 0:
-            raise RuntimeError("claude 실행 실패: " + (out.stderr or out.stdout)[-500:])
-        result = json.loads(out.stdout)
+            # JSON 출력이면 끝부분(사용량)이 아니라 result 의 오류 문구를 남겨요
+            detail = str(result.get("result")) if isinstance(result, dict) else (out.stderr or out.stdout)[-500:]
+            raise RuntimeError("claude 실행 실패: " + detail[:500])
         if result.get("is_error"):
             raise RuntimeError("claude 오류: " + str(result.get("result"))[:500])
         return result.get("result", "")
